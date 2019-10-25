@@ -7,31 +7,37 @@
 #include <MiCS6814-I2C.h>
 #include <TinyGPS++.h>
 #include "SparkFunLSM6DS3.h"
+#include "RadiationWatch.h"
 
 
 /////////// DEFINE GLOBAL VARIABLES  ////////////
 SHT31 sht31 = SHT31();
 MiCS6814 gasSensor;
 File SensorData;
+TinyGPSPlus gps;
 LSM6DS3 myIMU( I2C_MODE, 0x6A );
 BMP280 bmp280;
-TinyGPSPlus gps;
+RadiationWatch radiationWatch;
 static void smartdelay(unsigned long ms);
 float temp, hum, pressure, T_pressure, alt_pressure, T_in;
 float  ppmCO, ppmNO2, ppmNH3, ppmC3H8, ppmC4H10, ppmCH4, ppmH2, ppmC2H5OH;
 double x1a,y1a,z1a,x1g,y1g,z1g;
 const int     chipSelect = BUILTIN_SDCARD;
 float latitude, longitude, alt_gps;
-double UValue;
+float UValue, OzoneValue;
 long UVindex;
 unsigned int h, m, s, ddmmyy;
 bool sensorConnected;
+float radiationSV = -1;
+float radiationcpm = -1;
+float radiationError = -1;
 
 
 void setup() {
     // SERIALS INITIALIZATION
     Serial.begin(9600);           //Connection to the computer. Serial monitor.
     Serial1.begin(9600);          // GPS serial port
+    Serial2.begin(19200);         // Sigbee connection. Send data down t Earth.
   
     // INITIALIZE SD CARD
     if (!SD.begin(chipSelect)) {  // see if the card is present and can be initialized:
@@ -44,12 +50,13 @@ void setup() {
     bmp280.init();
     multigasInit();
     AccelerometerInit();
+    RadiationInit();
 
     // OPEN DATA ON SD CARD
     SensorData = SD.open("DATA.csv", FILE_WRITE);
     if (SensorData){
       Serial.print("Writing to file");   
-      SensorData.println(" Date and Time; Latitude; Longitude; Altgps (m); T_out (C); Humidity (%); Pressure (Pa); Temp_pres (C); alt_pres (m); CO (ppm); NO2 (ppm); NH3 (ppm); C3H8 (ppm); C4H10 (ppm); H2 (ppm); C2H5OH (ppm); x1a (m/s2); y1a (m/s2); z1a (m/s2); x1aGyro (deg); y1aGyro (deg); z1aGyro (deg); UV index ");
+      SensorData.println(" Date and Time; Latitude; Longitude; Altgps (m); T_out (C); Humidity (%); Pressure (Pa); Temp_pres (C); alt_pres (m); CO (ppm); NO2 (ppm); NH3 (ppm); C3H8 (ppm); C4H10 (ppm); H2 (ppm); C2H5OH (ppm); x1a (m/s2); y1a (m/s2); z1a (m/s2); x1aGyro (deg); y1aGyro (deg); z1aGyro (deg); UV index; Ozone; Radiation; Rad_Error ");
       } 
     else {Serial.println("error opening file");}
 
@@ -62,6 +69,8 @@ void loop() {
   GetGas();
   GetAccelerometer();
   GetUV();
+  GetOzone();
+  GetRadiation();
   GPS();
   // OPEN DATA ON SD CARD
   if (SensorData){
@@ -121,11 +130,22 @@ void loop() {
     SensorData.print(z1g);
     SensorData.print(";");
     
-    SensorData.println(UVindex);
+    SensorData.print(UVindex);
+    SensorData.print(";");
+
+    SensorData.print(OzoneValue);
+
+    SensorData.print(";");
+    
+    SensorData.print(radiationSV);
+    SensorData.print(";");
+    SensorData.println(radiationError);
     
   } else {Serial.println("error opening file");}
 
 SensorData.close();
+delay(1000);
+//SendDataToEarth();
 smartdelay(2000);
 SensorData = SD.open("DATA.csv", FILE_WRITE);
 }
@@ -207,6 +227,36 @@ void GPS(){
       }
     }  
 }
+
+void GetOzone(){
+  OzoneValue=analogRead(A0);
+}
+
+
+void GetRadiation(){
+  radiationWatch.loop();
+}
+
+void RadiationInit(){
+  radiationWatch.setup();
+  // Register the callbacks.
+  radiationWatch.registerRadiationCallback(&onRadiation);
+  radiationWatch.registerNoiseCallback(&onNoise);
+  }
+
+void onRadiation()
+{
+  radiationSV = radiationWatch.uSvh();
+  radiationcpm = radiationWatch.uSvh();
+  radiationError = radiationWatch.uSvhError();
+}
+
+void onNoise()
+{
+  Serial.println("Argh, noise, please stop moving");
+}
+
+
 static void smartdelay(unsigned long ms)
 {
   unsigned long start = millis();
@@ -215,3 +265,10 @@ static void smartdelay(unsigned long ms)
       gps.encode(Serial1.read());
   } while (millis() - start < ms);
 }
+
+
+/*void SendDataToEarth(){
+// develop code to send the useful information via the SIGBEE.
+// Create buffer with the information and send it via Serial2.
+Serial2.write(buffer);
+}*/
