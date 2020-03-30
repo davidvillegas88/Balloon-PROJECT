@@ -5,65 +5,57 @@
 #include "SHT31.h"
 #include "Seeed_BMP280.h"
 #include <MiCS6814-I2C.h>
-#include <TinyGPS++.h>
 #include "SparkFunLSM6DS3.h"
 #include "RadiationWatch.h"
 
 
 /////////// DEFINE GLOBAL VARIABLES  ////////////
-SHT31 sht31 = SHT31();
-MiCS6814 gasSensor;
-File SensorData;
-TinyGPSPlus gps;
-LSM6DS3 myIMU( I2C_MODE, 0x6A );
-BMP280 bmp280;
-RadiationWatch radiationWatch;
-static void smartdelay(unsigned long ms);
-float temp, hum, pressure, T_pressure, alt_pressure, T_in;
-float  ppmCO, ppmNO2, ppmNH3, ppmC3H8, ppmC4H10, ppmCH4, ppmH2, ppmC2H5OH;
-double x1a,y1a,z1a,x1g,y1g,z1g;
-const int     chipSelect = BUILTIN_SDCARD;
-float latitude, longitude, alt_gps;
-float UValue, OzoneValue;
-long UVindex;
-unsigned int h, m, s, ddmmyy;
-bool sensorConnected;
-float radiationSV = -1;
-float radiationcpm = -1;
-float radiationError = -1;
+SHT31           sht31 = SHT31();
+MiCS6814        gasSensor;
+File            SensorData;
+TinyGPSPlus     gps;
+LSM6DS3         myIMU( I2C_MODE, 0x6A );
+BMP280          bmp280;
+RadiationWatch  radiationWatch;
+static void     smartdelay(unsigned long ms);
+float           temp, hum, pressure, T_pressure, alt_pressure, T_in;
+float           ppmCO, ppmNO2, ppmNH3, ppmC3H8, ppmC4H10, ppmCH4, ppmH2, ppmC2H5OH;
+double          x1a,y1a,z1a,x1g,y1g,z1g;
+const int       chipSelect = BUILTIN_SDCARD;
+float           latitude, longitude, alt_gps;
+float           UValue, OzoneValue;
+long            UVindex;
+unsigned int    h, m, s, ddmmyy;
+bool            sensorConnected;
+float           radiationSV = -1, radiationcpm = -1, radiationError = -1;
 
 
 void setup() {
+    // DIGITAL OUTPUT (not reset Xbee)
+    pinMode(21, OUTPUT);    // sets the digital pin 21 as output
+    digitalWrite(21, HIGH); // sets the digital pin 21 on
+    pinMode(34, OUTPUT);    // sets the led as output
+    digitalWrite(34, HIGH); // sets the led on
     // SERIALS INITIALIZATION
-    Serial.begin(9600);           //Connection to the computer. Serial monitor.
-    Serial1.begin(9600);          // GPS serial port
-    Serial2.begin(19200);         // Sigbee connection. Send data down t Earth.
+    //Serial.begin(9600);           //Connection to the computer. Serial monitor.
+    Serial4.begin(9600);          // GPS serial port
+    Serial3.begin(19200);         // Sigbee connection. Send data down t Earth.
   
     // INITIALIZE SD CARD
-    if (!SD.begin(chipSelect)) {  // see if the card is present and can be initialized:
-      Serial.println("Card failed, or not present");
-    }
-    Serial.println("card initialized.");  // create a new file
-
+    SD.begin(chipSelect);
     // INITIALIZE SENSORS
-    sht31.begin();
-    bmp280.init();
-    multigasInit();
-    AccelerometerInit();
-    RadiationInit();
-
+    InitializeAll();
     // OPEN DATA ON SD CARD
     SensorData = SD.open("DATA.csv", FILE_WRITE);
     if (SensorData){
-      Serial.print("Writing to file");   
+      //Serial.println("Writing headers to file...");   
       SensorData.println(" Date and Time; Latitude; Longitude; Altgps (m); T_out (C); Humidity (%); Pressure (Pa); Temp_pres (C); alt_pres (m); CO (ppm); NO2 (ppm); NH3 (ppm); C3H8 (ppm); C4H10 (ppm); H2 (ppm); C2H5OH (ppm); x1a (m/s2); y1a (m/s2); z1a (m/s2); x1aGyro (deg); y1aGyro (deg); z1aGyro (deg); UV index; Ozone; Radiation; Rad_Error ");
-      } 
-    else {Serial.println("error opening file");}
-
+      }
 }
 
 void loop() {
   // GET VALUES OF SENSORS
+  Serial.print()
   GetTemperature();
   GetPressure();
   GetGas();
@@ -74,7 +66,7 @@ void loop() {
   GPS();
   // OPEN DATA ON SD CARD
   if (SensorData){
-    Serial.println("Writing to file");
+    //Serial.println("Writing to SD file...");
     SensorData.print(ddmmyy);
     SensorData.print(' ');
     SensorData.print(h);
@@ -83,9 +75,9 @@ void loop() {
     SensorData.print(':');
     SensorData.print(s);
     SensorData.print(";");
-    SensorData.print(latitude);
+    SensorData.print(latitude,6);
     SensorData.print(";");
-    SensorData.print(longitude);
+    SensorData.print(longitude,6);
     SensorData.print(";");
     SensorData.print(alt_gps);
     SensorData.print(";");
@@ -139,13 +131,14 @@ void loop() {
     
     SensorData.print(radiationSV);
     SensorData.print(";");
-    SensorData.println(radiationError);
-    
-  } else {Serial.println("error opening file");}
-
+    SensorData.println(radiationError);   
+  } 
+  
 SensorData.close();
+digitalWrite(34, HIGH); // sets the led on
 delay(1000);
-//SendDataToEarth();
+digitalWrite(34, LOW); // sets the led off
+SendDataToEarth();
 smartdelay(2000);
 SensorData = SD.open("DATA.csv", FILE_WRITE);
 }
@@ -162,13 +155,8 @@ void GetPressure(){
 }
 
 void multigasInit(){
-  sensorConnected = gasSensor.begin();
-  if (sensorConnected == true) {
-    gasSensor.powerOn();
-  } 
-  else {
-    Serial.println("Couldn’t connect to multichannel sensor");
-  }
+  sensorConnected = gasSensor.begin(); 
+  gasSensor.powerOn();
 }
 
 void GetGas(){
@@ -182,14 +170,20 @@ void GetGas(){
  ppmH2=gasSensor.measureH2();
  ppmC2H5OH=gasSensor.measureC2H5OH();
 }
+else {
+ ppmCO=888;
+ ppmNO2=888;
+ ppmNH3=888;
+ ppmC3H8=888;
+ ppmC4H10=888;
+ ppmCH4=888;
+ ppmH2=888;
+ ppmC2H5OH=888;
+}
 }
 
 void AccelerometerInit(){
-  while( myIMU.begin() != 0 )
-  {
-    Serial.println("Device error");
-  }
-  
+  myIMU.begin();
 }
 void GetAccelerometer(){
   x1a = myIMU.readFloatAccelX();
@@ -204,7 +198,7 @@ void GetUV(){
     long  sum=0;
     for(int i=0;i<1024;i++)// accumulate readings for 1024 times
     {
-        UValue=analogRead(A8);
+        UValue=analogRead(A17);
         sum=UValue+sum;
         delay(2);
     }
@@ -213,10 +207,10 @@ void GetUV(){
 }
 
 void GPS(){
-    while (Serial1.available()){
-      gps.encode(Serial1.read());
-      if (gps.location.isUpdated())
-      {        
+    while (Serial4.available()){
+      int cgp = Serial4.read();
+      if (gps.encode(cgp))
+      {       
         latitude = gps.location.lat(); // Latitude in degrees (double)
         longitude = gps.location.lng(); // Longitude in degrees (double)
         ddmmyy = gps.date.value(); // Raw date in DDMMYY format (u32)
@@ -229,7 +223,7 @@ void GPS(){
 }
 
 void GetOzone(){
-  OzoneValue=analogRead(A0);
+  OzoneValue=analogRead(A19);
 }
 
 
@@ -241,7 +235,6 @@ void RadiationInit(){
   radiationWatch.setup();
   // Register the callbacks.
   radiationWatch.registerRadiationCallback(&onRadiation);
-  radiationWatch.registerNoiseCallback(&onNoise);
   }
 
 void onRadiation()
@@ -251,24 +244,44 @@ void onRadiation()
   radiationError = radiationWatch.uSvhError();
 }
 
-void onNoise()
-{
-  Serial.println("Argh, noise, please stop moving");
-}
-
 
 static void smartdelay(unsigned long ms)
 {
   unsigned long start = millis();
   do {
-    while (Serial1.available())
-      gps.encode(Serial1.read());
+    while (Serial4.available())
+      gps.encode(Serial4.read());
   } while (millis() - start < ms);
 }
 
+void InitializeAll(){
+    sht31.begin();
+    bmp280.init();
+    multigasInit();
+    AccelerometerInit();
+    RadiationInit();
+}
+  
 
-/*void SendDataToEarth(){
+
+void SendDataToEarth(){
 // develop code to send the useful information via the SIGBEE.
 // Create buffer with the information and send it via Serial2.
-Serial2.write(buffer);
-}*/
+    Serial3.print("Date:");
+    Serial3.print(ddmmyy);
+    Serial3.print(h);
+    Serial3.print(m);
+    Serial3.print(s);
+    Serial3.write("Lat:");
+    Serial3.print(latitude,6);  
+    Serial3.write("Lon:");
+    Serial3.print(longitude,6);
+    Serial3.write("AltGPS:");
+    Serial3.print(alt_gps,3);
+    Serial3.write("T:");
+    Serial3.print(temp);   
+    Serial3.write("P:");
+    Serial3.print(pressure);
+    Serial3.write("Tpres:");
+    Serial3.println(T_pressure);
+}
